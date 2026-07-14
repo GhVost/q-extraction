@@ -129,6 +129,7 @@ double f1 = 0;
 double f2 = 0;
 double bw = 0;
 double qq = 0;
+double asym = 0;
 string lbl$ = "";
 
 loop(jj, 1, nc) {
@@ -177,8 +178,10 @@ loop(jj, 1, nc) {
             else {
                 bw = f2 - f1;
                 qq = fpk / bw;
+                asym = 0;
+                if(fpk > f1) asym = (f2 - fpk) / (fpk - f1);
                 nq = nq + 1;
-                type "* %(lbl$):  f0 = $(fpk, %.10g)   BW = $(bw, %.6g)   Q = $(qq, %.0f)";
+                type "* %(lbl$):  f0 = $(fpk, %.10g)   peak = $(ypk, %.6g)   BW = $(bw, %.6g)   Q = $(qq, %.0f)   asym = $(asym, %.2f)";
             }
         }
     }

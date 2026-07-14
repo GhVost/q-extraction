@@ -66,7 +66,8 @@ if len(fvalid) < 5:
 fmin, fmax = min(fvalid), max(fvalid)
 print(f"Frequency axis: col A, {len(fvalid)} points, {fmin:.6g} .. {fmax:.6g}")
 
-names, f0s, bws, qs = [], [], [], []
+names, f0s, ypks, bws, qs = [], [], [], [], []
+rms, bases, asyms = [], [], []
 
 for j in range(1, ncols):
     y_all = to_floats(wks.to_list(j))
@@ -92,26 +93,46 @@ for j in range(1, ncols):
     f1 = cross_left(f, y, ipk, lev)
     f2 = cross_right(f, y, ipk, lev)
 
+    base = sorted(y)[len(y) // 2]          # median = off-resonance floor
+    # ponytail: Rm from peak height only (conductance mode); BVD fit lives
+    # in standalone/extract_q.py (Origin's Python has no scipy)
+    rm = 1.0 / (ypk - base) if MODE == 'conductance' and ypk > base else None
+
     names.append(label)
     f0s.append(fpk)
+    ypks.append(ypk)
+    rms.append(rm)
+    bases.append(base)
     if f1 is None or f2 is None:
         print(f"  {label}: peak cut off by sweep edge - no Q")
         bws.append(None)
         qs.append(None)
+        asyms.append(None)
     else:
         bw = f2 - f1
         q = fpk / bw
+        asym = (f2 - fpk) / (fpk - f1) if fpk > f1 else None
         bws.append(bw)
         qs.append(q)
-        print(f"* {label}:  f0 = {fpk:.10g}   BW = {bw:.6g}   Q = {q:.0f}")
+        asyms.append(asym)
+        astr = f"{asym:.2f}" if asym is not None else "n/a"
+        print(f"* {label}:  f0 = {fpk:.10g}   peak = {ypk:.6g}   BW = {bw:.6g}"
+              f"   Q = {q:.0f}   baseline = {base:.6g}   asym = {astr}"
+              + (f"   Rm = {rm:.6g}" if rm is not None else ""))
 
 if names:
     res = op.new_sheet('w', 'QResults')
-    res.cols = 4
+    res.cols = 8
     res.from_list(0, names, lname='Trace')
-    res.from_list(1, f0s,   lname='f0',     units='(x units)')
-    res.from_list(2, bws,   lname='BW 3dB', units='(x units)')
-    res.from_list(3, qs,    lname='Q')
+    res.from_list(1, f0s,   lname='f0',       units='(x units)')
+    res.from_list(2, ypks,  lname='peak',     units='(y units)')
+    res.from_list(3, bws,   lname='BW 3dB',   units='(x units)')
+    res.from_list(4, qs,    lname='Q')
+    res.from_list(5, rms,   lname='Rm',       units='Ohm',
+                  comments='1/(peak-baseline), conductance mode only')
+    res.from_list(6, bases, lname='baseline', units='(y units)')
+    res.from_list(7, asyms, lname='asym',
+                  comments='(f2-f0)/(f0-f1), 1 = symmetric')
     print(f"\nDone: {len(names)} trace(s) -> QResults sheet.")
 else:
     print("No traces processed - check the data layout.")

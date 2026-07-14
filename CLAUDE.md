@@ -14,7 +14,10 @@ analyzed either inside OriginLab or standalone.
   Wrong level biases Q by ~1.55x. Default MODE = 'conductance'.
 - Q is unitless; frequency units (GHz vs Hz) don't matter.
 - Asymmetric (Fano) peaks from feedthrough bias the 3dB method; the fix
-  is a Butterworth-Van Dyke fit (not implemented yet).
+  is the BVD fit in standalone/extract_q.py (rotated Lorentzian for G,
+  complex feedthrough for |Y|). The asym column (1.00 = symmetric) flags
+  when to trust BVD over 3dB. BVD f0 is the one to track for
+  softening/hardening.
 
 ## Data format quirks (learned the hard way)
 - Origin ASCII imports of multi-trace sweeps mislabel data columns as

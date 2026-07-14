@@ -7,8 +7,8 @@ front ends:
 | Path | File | Use when |
 |---|---|---|
 | **OriginLab, embedded Python** | `origin/extract_q_origin.py` | You work in Origin 2021+ (no extra packages needed) |
-| **Standalone Python** | `standalone/extract_q.py` | You have CSV exports; adds a Lorentzian-fit cross-check |
-| **Pure LabTalk** | `labtalk/extract_q_diag.ogs` | Origin without Python; staged diagnostic sections t1..t5 + main |
+| **Standalone Python** | `standalone/extract_q.py` | You have CSV exports; adds a Butterworth-Van Dyke fit cross-check |
+| **Pure LabTalk** | `labtalk/extract_q_diag.ogs` | Origin older than 2021, or any Origin without working Python |
 
 ## Method
 
@@ -26,8 +26,28 @@ Using the wrong level biases Q by ~1.55x, so set the mode correctly:
 `MODE = 'conductance' | 'magnitude'` at the top of the Origin script,
 or the `--conductance` flag for the standalone script.
 
-The standalone script additionally fits a Lorentzian to the power-like
-quantity as an independent check; the two Q values should agree closely.
+### Extracted parameters
+
+| Parameter | 3dB method | BVD fit (standalone only) |
+|---|---|---|
+| f0 (resonance frequency) | peak sample + parabolic refinement | fit — use this one to track softening/hardening |
+| peak value | raw maximum | — |
+| BW, Q | interpolated -3 dB crossings | fit |
+| baseline | median of trace (off-resonance floor) | fit offset |
+| asymmetry | (f2-f0)/(f0-f1), 1.00 = symmetric | phi (conductance) / C0 (magnitude) |
+| Rm, Lm, Cm | Rm = 1/(peak-baseline), conductance only | fit |
+
+### Butterworth-Van Dyke fit (standalone script)
+
+The standalone script also fits a BVD model near resonance:
+motional branch `Ym = (1/Rm) / (1 + 2jQ(f-f0)/f0)`, plus a Fano skew
+angle `phi` (conductance mode) or a complex feedthrough `~ j*2*pi*f0*C0`
+(magnitude mode). On a symmetric peak it agrees with the 3dB method;
+on an asymmetric (Fano) peak the 3dB Q is biased (the `asym` column
+flags this — 1.00 means symmetric) and the BVD values are the ones to
+trust. For softening/hardening assessment across drive levels, track
+the BVD `f0`: it stays exact even when feedthrough shifts the raw peak
+position by several kHz.
 
 ## Data layout
 
@@ -39,11 +59,42 @@ taken from Origin's Comments row (falls back to Long Name).
 
 ## Usage
 
-**Origin:** activate the data workbook, Connectivity -> Open Untitled.py,
-paste `origin/extract_q_origin.py`, Run. Results print and land in a new
-`QResults` sheet.
+### Origin 2021 and newer (embedded Python)
 
-**Standalone:**
+Origin 2021 introduced the embedded Python environment with the
+`originpro` module — that is all `origin/extract_q_origin.py` needs
+(deliberately no numpy/scipy, so a stock install works):
+
+1. Activate the data workbook (click it so it is the active window).
+2. **Connectivity -> Open Untitled.py**, paste `origin/extract_q_origin.py`.
+3. Set `MODE = 'conductance' | 'magnitude'` at the top, press **Run** (F5).
+4. Results print to the message log and land in a new `QResults` sheet.
+
+Tested on Origin 2025b; anything 2021+ should behave the same.
+
+### Origin older than 2021 (no `originpro`)
+
+Pre-2021 Origin has no embedded Python (`Connectivity` menu and
+`originpro` do not exist; 2017-2020 only offer the external PyOrigin
+bridge, which needs its own Python install). Two options, in order of
+preference:
+
+1. **Export + standalone script** (full feature set incl. BVD fit):
+   **File -> Export -> ASCII**, comma or tab separated, then run
+   `standalone/extract_q.py` on the exported file (see below).
+2. **Pure LabTalk** (3dB method only, results in the Script Window):
+   open the Script Window (**Window -> Script Window**) and run
+
+       run.section(<path>\labtalk\extract_q_diag.ogs, main);
+
+   with the data worksheet active. If `main` fails silently (old
+   LabTalk interpreters reject different constructs), run the staged
+   sections `t1`..`t5` one by one — the first section that prints its
+   header but not its `== tN OK ==` line names the offending construct.
+   Note: the LabTalk path uses the `peak/sqrt(2)` (magnitude) level and
+   X/Y column designations; check both match your data.
+
+### Standalone script
 
     python standalone/extract_q.py data.csv --funit GHz --conductance
 
@@ -55,5 +106,6 @@ paste `origin/extract_q_origin.py`, Run. Results print and land in a new
 
 - Make sure the sweep has at least ~10 points inside the 3 dB bandwidth.
 - A visibly asymmetric (Fano-like) peak from capacitive feedthrough biases
-  the 3 dB method; fit a Butterworth-Van Dyke model instead in that case.
+  the 3 dB method; watch the `asym` column and trust the BVD-fit values
+  (standalone script) when it deviates from 1.00.
 - Q is unitless: frequency units (GHz vs Hz) do not affect it.

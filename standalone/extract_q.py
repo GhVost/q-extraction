@@ -8,7 +8,16 @@ Methods (cross-checked against each other):
        magnitude |Y|      : level = peak / sqrt(2)
        conductance Re(Y)  : level = peak / 2        (use --conductance)
      Q = f0 / BW
-  2. Lorentzian least-squares fit around the peak.
+  2. Butterworth-Van Dyke (BVD) least-squares fit around the peak:
+       motional branch  Ym = (1/Rm) / (1 + 2jQ(f-f0)/f0)
+       conductance mode : y = Re(e^{j phi} * Ym) + C   (phi = Fano skew)
+       magnitude mode   : y = |Ym + B|, B = complex feedthrough ~ j*2pi*f0*C0
+     Robust against asymmetric (Fano) peaks that bias the 3dB method;
+     also yields Rm, Lm, Cm (and C0 / phi). f0 from this fit is the one
+     to track for softening/hardening assessment.
+
+Per-trace extras: peak height, baseline (median), asymmetry ratio
+(f2-f0)/(f0-f1) (1.00 = symmetric Lorentzian).
 
 Usage:
     python extract_q.py data.csv                      # |Y| magnitude data
@@ -70,29 +79,52 @@ def q_half_power(f, y, level_div):
         d = yl[0] - 2*yl[1] + yl[2]
         if d != 0:
             fpk = x[1] - 0.25*(x[2]-x[0])*(yl[2]-yl[0])/d
-    return {"f0": fpk, "bw": bw, "f1": f1, "f2": f2, "Q": fpk/bw, "level": level}
+    return {"f0": fpk, "ypk": ypk, "bw": bw, "f1": f1, "f2": f2, "Q": fpk/bw, "level": level}
 
 
-def lorentz_power(f, A, f0, Q, C):
-    return A / (1.0 + (2.0*Q*(f - f0)/f0)**2) + C
+def bvd_fit(f, y, conductance, hp):
+    """Butterworth-Van Dyke fit near resonance.
 
-
-def q_fit(f, y, conductance, hp):
-    """Fit the power-like quantity: G directly, or |Y|^2."""
-    p = y if conductance else y**2
-    ipk = int(np.argmax(p))
+    Motional branch Ym = (1/Rm) / (1 + 2jQ(f-f0)/f0); the narrow band
+    (BW/f0 ~ 1e-5) lets the feedthrough be a complex constant.
+      conductance: y = Re(e^{j phi} Ym) + C     -> phi captures Fano skew
+      magnitude:   y = |Ym + br + j bi|         -> bi ~ 2*pi*f0*C0
+    With phi=0 / b=0 this reduces to the plain Lorentzian fit.
+    """
+    ipk = int(np.argmax(y))
     f0g = f[ipk]
     Qg, bw = (hp["Q"], hp["bw"]) if hp else (1e4, f0g/1e4)
     m = np.abs(f - f0g) < 6.0*bw
-    if m.sum() < 6:
+    if m.sum() < 8:
         m = slice(None)
+    base = float(np.median(y))
+    A0 = y[ipk] - base
+
+    if conductance:
+        def model(f, A, f0, Q, phi, C):
+            z = A * np.exp(1j*phi) / (1.0 + 2j*Q*(f - f0)/f0)
+            return z.real + C
+        p0 = [A0, f0g, Qg, 0.0, base]
+    else:
+        def model(f, A, f0, Q, br, bi):
+            z = A / (1.0 + 2j*Q*(f - f0)/f0)
+            return np.abs(z + br + 1j*bi)
+        p0 = [A0, f0g, Qg, base, 0.0]
+
     try:
-        popt, pcov = curve_fit(lorentz_power, f[m], p[m],
-                               p0=[p[ipk], f0g, Qg, np.median(p)], maxfev=20000)
-        return {"f0": popt[1], "Q": abs(popt[2]),
-                "Q_err": np.sqrt(np.diag(pcov))[2], "popt": popt}
+        popt, pcov = curve_fit(model, f[m], y[m], p0=p0, maxfev=20000)
+        A, f0, Q = abs(popt[0]), popt[1], abs(popt[2])
+        Rm = 1.0 / A
+        out = {"f0": f0, "Q": Q, "Rm": Rm,
+               "Lm": Q*Rm/(2*np.pi*f0), "Cm": 1.0/(2*np.pi*f0*Q*Rm),
+               "Q_err": np.sqrt(np.diag(pcov))[2]}
+        if conductance:
+            out["phi"] = popt[3]
+        else:
+            out["C0"] = popt[4] / (2*np.pi*f0)
+        return out
     except Exception as e:
-        print(f"  fit failed: {e}", file=sys.stderr)
+        print(f"  BVD fit failed: {e}", file=sys.stderr)
         return None
 
 
@@ -115,8 +147,9 @@ def main():
     fmin, fmax = f.min(), f.max()
 
     fig, ax = plt.subplots(figsize=(9, 6))
-    print(f"{'trace':<45}{'f0 (Hz)':>16}{'BW (Hz)':>12}{'Q (3dB)':>10}{'Q (fit)':>10}")
-    print("-" * 93)
+    print(f"{'trace':<45}{'f0 (Hz)':>16}{'peak (S)':>12}{'BW (Hz)':>12}"
+          f"{'Q (3dB)':>10}{'Q (BVD)':>10}{'Rm (Ohm)':>12}{'baseline':>12}{'asym':>8}")
+    print("-" * 137)
 
     for label, y in traces.items():
         if args.db:
@@ -125,12 +158,24 @@ def main():
             print(f"{label:<45}  looks like a frequency column - skipped")
             continue
         hp = q_half_power(f, y, level_div)
-        fit = q_fit(f, y, args.conductance, hp)
-        f0 = hp["f0"] if hp else (fit["f0"] if fit else np.nan)
+        bvd = bvd_fit(f, y, args.conductance, hp)
+        f0 = hp["f0"] if hp else (bvd["f0"] if bvd else np.nan)
+        ypk = y[np.argmax(y)]
+        baseline = float(np.median(y))
         q3 = f"{hp['Q']:.0f}" if hp else "n/a"
         bw = f"{hp['bw']:.4g}" if hp else "n/a"
-        qf = f"{fit['Q']:.0f}" if fit else "n/a"
-        print(f"{label:<45}{f0:>16.6g}{bw:>12}{q3:>10}{qf:>10}")
+        qb = f"{bvd['Q']:.0f}" if bvd else "n/a"
+        rm = f"{bvd['Rm']:.4g}" if bvd else "n/a"
+        asym = (f"{(hp['f2']-hp['f0'])/(hp['f0']-hp['f1']):.2f}"
+                if hp and hp["f0"] > hp["f1"] else "n/a")
+        print(f"{label:<45}{f0:>16.6g}{ypk:>12.4g}{bw:>12}{q3:>10}{qb:>10}"
+              f"{rm:>12}{baseline:>12.4g}{asym:>8}")
+        if bvd:
+            extra = (f"phi = {bvd['phi']:+.3f} rad" if args.conductance
+                     else f"C0 = {bvd['C0']:.3g} F")
+            print(f"    BVD:  f0 = {bvd['f0']:.10g} Hz   Q = {bvd['Q']:.0f}"
+                  f"   Rm = {bvd['Rm']:.4g} Ohm   Lm = {bvd['Lm']:.4g} H"
+                  f"   Cm = {bvd['Cm']:.4g} F   {extra}")
 
         ax.semilogy(f/scale, np.clip(y, 1e-300, None), lw=1, label=f"{label} (Q≈{q3})")
         if hp:
