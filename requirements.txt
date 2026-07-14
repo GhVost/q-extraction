@@ -1,0 +1,5 @@
+# only needed for standalone/extract_q.py and tests
+numpy
+pandas
+scipy
+matplotlib

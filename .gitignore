@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+tests/*.csv
+q_extraction.png
+tests/q_extraction.png

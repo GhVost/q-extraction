@@ -1,0 +1,186 @@
+// ============================================================
+// extract_q_diag.ogs - STAGED diagnostics + Q extraction
+// Run the sections ONE BY ONE from the Script Window,
+// with your DATA worksheet active:
+//
+//   run.section(C:\Users\glukhovskoy\Downloads\extract_q_diag.ogs, t1);
+//   run.section(C:\Users\glukhovskoy\Downloads\extract_q_diag.ogs, t2);
+//   run.section(C:\Users\glukhovskoy\Downloads\extract_q_diag.ogs, t3);
+//   run.section(C:\Users\glukhovskoy\Downloads\extract_q_diag.ogs, t4);
+//   run.section(C:\Users\glukhovskoy\Downloads\extract_q_diag.ogs, t5);
+//   run.section(C:\Users\glukhovskoy\Downloads\extract_q_diag.ogs, main);
+//
+// Each section ends with "== tN OK ==". The first section that
+// prints its header but NOT its OK line contains the construct
+// your Origin rejects - tell me its number.
+// ============================================================
+
+// ------------------------------------------------------------
+// t1: basics - variables, substitution, worksheet properties
+// ------------------------------------------------------------
+[t1]
+type "== t1: basics ==";
+string bk$ = %H;
+string dsh$ = page.active$;
+int nr = wks.nrows;
+int nc = wks.ncols;
+type "  book = %(bk$)";
+type "  sheet = %(dsh$)";
+type "  rows = $(nr), cols = $(nc)";
+type "== t1 OK ==";
+
+// ------------------------------------------------------------
+// t2: column enumeration - designation (X/Y), long name, comment
+// ------------------------------------------------------------
+[t2]
+type "== t2: column enumeration ==";
+int nc = wks.ncols;
+int jj = 0;
+int ctype = 0;
+loop(jj, 1, nc) {
+    wks.col = jj;
+    ctype = wks.col.type;
+    type "  col $(jj): type=$(ctype)  L='%(col($(jj))[L]$)'  C='%(col($(jj))[C]$)'";
+}
+type "  (type 4 = X, type 1 = Y)";
+type "== t2 OK ==";
+
+// ------------------------------------------------------------
+// t3: ranges + partial data display (first 5 rows of col 1, 2)
+// ------------------------------------------------------------
+[t3]
+type "== t3: ranges and data preview ==";
+string bk$ = %H;
+string dsh$ = page.active$;
+range ff = [%(bk$)]%(dsh$)!col(1);
+range yy = [%(bk$)]%(dsh$)!col(2);
+int n1 = ff.GetSize();
+int n2 = yy.GetSize();
+type "  col1 size = $(n1), col2 size = $(n2)";
+int k = 0;
+loop(k, 1, 5) {
+    type "  row $(k):  x = $(ff[k], %.10g)   y = $(yy[k], %.6g)";
+}
+type "== t3 OK ==";
+
+// ------------------------------------------------------------
+// t4: math on arrays - max, index lookup, element arithmetic
+// ------------------------------------------------------------
+[t4]
+type "== t4: array math ==";
+string bk$ = %H;
+string dsh$ = page.active$;
+range ff = [%(bk$)]%(dsh$)!col(1);
+range yy = [%(bk$)]%(dsh$)!col(2);
+double ypk = max(yy);
+type "  max(col2) = $(ypk, %.6g)";
+int ipk = list(ypk, yy);
+type "  index of max = $(ipk)";
+double fpk = ff[ipk];
+type "  freq at max = $(fpk, %.10g)";
+double lev = ypk / sqrt(2);
+type "  -3dB level = $(lev, %.6g)";
+type "== t4 OK ==";
+
+// ------------------------------------------------------------
+// t5: loop constructs - decrementing for, nested if, &&, strings
+// ------------------------------------------------------------
+[t5]
+type "== t5: loop constructs ==";
+int k = 0;
+int found = 0;
+int hits = 0;
+for(k = 10; k >= 2; k--) {
+    if(found == 0) {
+        if(k < 5 && k > 2) {
+            found = 1;
+            hits = k;
+        }
+    }
+}
+type "  decrementing for + nested if + &&: found=$(found), k=$(hits) (expect 1, 4)";
+string lbl$ = "";
+lbl$ = col(2)[C]$;
+if(lbl.GetLength() == 0) lbl$ = col(2)[L]$;
+type "  label of col2 = '%(lbl$)'";
+type "== t5 OK ==";
+
+// ------------------------------------------------------------
+// main: the actual Q extraction (only run after t1-t5 all OK)
+// ------------------------------------------------------------
+[main]
+type "== main: Q extraction ==";
+string bk$ = %H;
+string dsh$ = page.active$;
+int nr = wks.nrows;
+int nc = wks.ncols;
+int jj = 0;
+int k = 0;
+int xcol = 0;
+int ctype = 0;
+int ipk = 0;
+int found = 0;
+int nn = 0;
+int nq = 0;
+double ypk = 0;
+double fpk = 0;
+double lev = 0;
+double f1 = 0;
+double f2 = 0;
+double bw = 0;
+double qq = 0;
+string lbl$ = "";
+
+loop(jj, 1, nc) {
+    wks.col = jj;
+    ctype = wks.col.type;
+    if(ctype == 4) {
+        xcol = jj;
+    }
+    if(ctype == 1 && xcol > 0) {
+        range ff = [%(bk$)]%(dsh$)!col($(xcol));
+        range yy = [%(bk$)]%(dsh$)!col($(jj));
+        nn = ff.GetSize();
+        if(yy.GetSize() < nn) nn = yy.GetSize();
+        if(nn >= 5) {
+            ypk = max(yy);
+            ipk = list(ypk, yy);
+            if(ipk < 1) ipk = 1;
+            fpk = ff[ipk];
+            lev = ypk / sqrt(2);
+            f1 = 0;
+            found = 0;
+            for(k = ipk; k >= 2; k--) {
+                if(found == 0) {
+                    if(yy[k-1] < lev && yy[k] >= lev) {
+                        f1 = ff[k-1] + (ff[k]-ff[k-1])*(lev-yy[k-1])/(yy[k]-yy[k-1]);
+                        found = 1;
+                    }
+                }
+            }
+            f2 = 0;
+            found = 0;
+            for(k = ipk; k <= nn-1; k++) {
+                if(found == 0) {
+                    if(yy[k+1] < lev && yy[k] >= lev) {
+                        f2 = ff[k] + (ff[k+1]-ff[k])*(lev-yy[k])/(yy[k+1]-yy[k]);
+                        found = 1;
+                    }
+                }
+            }
+            lbl$ = col($(jj))[C]$;
+            if(lbl.GetLength() == 0) lbl$ = col($(jj))[L]$;
+            if(lbl.GetLength() == 0) lbl$ = "col $(jj)";
+            if(f1 == 0 || f2 == 0) {
+                type "  %(lbl$): peak cut off by sweep edge - no Q";
+            }
+            else {
+                bw = f2 - f1;
+                qq = fpk / bw;
+                nq = nq + 1;
+                type "* %(lbl$):  f0 = $(fpk, %.10g)   BW = $(bw, %.6g)   Q = $(qq, %.0f)";
+            }
+        }
+    }
+}
+type "== main done: $(nq) Q value(s) ==";
