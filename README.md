@@ -57,6 +57,19 @@ often mislabel data columns as X2, X3, ...). Columns whose values fall
 inside the frequency range are skipped as duplicate axes. Trace names are
 taken from Origin's Comments row (falls back to Long Name).
 
+### Sweep parameter columns (Origin script)
+
+If a trace's Comments/Long Name is a `name=value` list — e.g.
+`R_l=0.1 Ohm, motional conductance` — `origin/extract_q_origin.py` splits
+it and adds one QResults column per distinct parameter found (`R_l` in
+this example). Sweeping more than one parameter (e.g.
+`internal_ring=2.5 um, external_ring=4 um, ...`) adds one column each,
+so a multi-parameter sweep unstacks into separate, sortable/filterable
+columns instead of one combined text label. Tokens without an `=` (like
+the trailing `motional conductance`) are ignored. `f0`/`peak`/`BW`
+columns get their units from the source worksheet's Units row (falls
+back to `(x units)`/`(y units)` if that row is empty).
+
 ## Usage
 
 ### Origin 2021 and newer (embedded Python)

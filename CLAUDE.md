@@ -28,6 +28,13 @@ analyzed either inside OriginLab or standalone.
 - Trace names live in Origin's Comments row (full parameter combo),
   Long Name only has partial info.
 - Typical size: ~19k rows x ~27 columns.
+- Trace labels are `name=value` lists (e.g. `R_l=0.1 Ohm, motional
+  conductance`); origin/extract_q_origin.py parses these and adds one
+  QResults column per distinct parameter name found (handles any number
+  of swept parameters, not just one).
+- Real units (GHz, S, ...) live in the worksheet's Units row
+  (`wks.get_labels('U')`), not in column names — don't hardcode unit
+  strings in QResults, read them from there.
 
 ## Environment constraints
 - origin/extract_q_origin.py runs INSIDE Origin (2025b) via
