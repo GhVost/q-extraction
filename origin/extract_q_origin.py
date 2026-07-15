@@ -18,7 +18,23 @@ MODE = 'conductance'
 # =============================================================
 
 import math
+import re
 import originpro as op
+
+PARAM_RE = re.compile(r'^\s*([^=,]+?)\s*=\s*(.+?)\s*$')
+
+
+def parse_params(label):
+    """Pull name=value tokens out of a comma-separated trace label,
+    e.g. 'R_l=0.1 Ohm, internal_ring=2.5 um, motional conductance'
+    -> {'R_l': '0.1 Ohm', 'internal_ring': '2.5 um'}"""
+    params = {}
+    for part in label.split(','):
+        m = PARAM_RE.match(part)
+        if m:
+            params[m.group(1)] = m.group(2)
+    return params
+
 
 LEVEL_DIV = 2.0 if MODE == 'conductance' else math.sqrt(2.0)
 
@@ -32,6 +48,8 @@ print(f"Processing sheet with {ncols} columns...")
 
 longnames = wks.get_labels('L') or [''] * ncols
 comments  = wks.get_labels('C') or [''] * ncols
+units     = wks.get_labels('U') or [''] * ncols
+funit     = units[0] if units and units[0] else '(x units)'
 
 
 def to_floats(vals):
@@ -66,8 +84,9 @@ if len(fvalid) < 5:
 fmin, fmax = min(fvalid), max(fvalid)
 print(f"Frequency axis: col A, {len(fvalid)} points, {fmin:.6g} .. {fmax:.6g}")
 
-names, f0s, ypks, bws, qs = [], [], [], [], []
+names, params_list, f0s, ypks, bws, qs = [], [], [], [], [], []
 rms, bases, asyms = [], [], []
+yunit = '(y units)'
 
 for j in range(1, ncols):
     y_all = to_floats(wks.to_list(j))
@@ -84,6 +103,8 @@ for j in range(1, ncols):
         continue
 
     label = comments[j] or longnames[j] or f"col {j+1}"
+    if yunit == '(y units)' and j < len(units) and units[j]:
+        yunit = units[j]
 
     ypk = max(y)
     ipk = y.index(ypk)
@@ -99,6 +120,7 @@ for j in range(1, ncols):
     rm = 1.0 / (ypk - base) if MODE == 'conductance' and ypk > base else None
 
     names.append(label)
+    params_list.append(parse_params(label))
     f0s.append(fpk)
     ypks.append(ypk)
     rms.append(rm)
@@ -121,17 +143,27 @@ for j in range(1, ncols):
               + (f"   Rm = {rm:.6g}" if rm is not None else ""))
 
 if names:
+    param_keys = []
+    for p in params_list:
+        for k in p:
+            if k not in param_keys:
+                param_keys.append(k)
+
     res = op.new_sheet('w', 'QResults')
-    res.cols = 8
+    res.cols = 8 + len(param_keys)
     res.from_list(0, names, lname='Trace')
-    res.from_list(1, f0s,   lname='f0',       units='(x units)')
-    res.from_list(2, ypks,  lname='peak',     units='(y units)')
-    res.from_list(3, bws,   lname='BW 3dB',   units='(x units)')
-    res.from_list(4, qs,    lname='Q')
-    res.from_list(5, rms,   lname='Rm',       units='Ohm',
-                  comments='1/(peak-baseline), conductance mode only')
-    res.from_list(6, bases, lname='baseline', units='(y units)')
-    res.from_list(7, asyms, lname='asym',
+    col = 1
+    for k in param_keys:
+        res.from_list(col, [p.get(k, '') for p in params_list], lname=k)
+        col += 1
+    res.from_list(col,     f0s,   lname='f0',       units=funit); col += 1
+    res.from_list(col,     ypks,  lname='peak',     units=yunit); col += 1
+    res.from_list(col,     bws,   lname='BW 3dB',   units=funit); col += 1
+    res.from_list(col,     qs,    lname='Q');                     col += 1
+    res.from_list(col,     rms,   lname='Rm',       units='Ohm',
+                  comments='1/(peak-baseline), conductance mode only'); col += 1
+    res.from_list(col,     bases, lname='baseline', units=yunit); col += 1
+    res.from_list(col,     asyms, lname='asym',
                   comments='(f2-f0)/(f0-f1), 1 = symmetric')
     print(f"\nDone: {len(names)} trace(s) -> QResults sheet.")
 else:
