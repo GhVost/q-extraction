@@ -3,10 +3,16 @@
 Q-factor extraction from resonance curves in CSV files
 (e.g. HFSS / COMSOL / Origin ASCII exports).
 
+Mode is auto-detected per trace: a column of complex literals (trailing
+"i", e.g. "4.656e-7+0.0141i") is real Y data -> conductance = Re(Y) is
+used directly. A column of plain real numbers is assumed to already be
+|Y| -> magnitude mode. --conductance/--magnitude override this for all
+traces (needed since a real-only column can't self-identify as G vs |Y|).
+
 Methods (cross-checked against each other):
   1. Half-power bandwidth with interpolated crossings:
        magnitude |Y|      : level = peak / sqrt(2)
-       conductance Re(Y)  : level = peak / 2        (use --conductance)
+       conductance Re(Y)  : level = peak / 2
      Q = f0 / BW
   2. Butterworth-Van Dyke (BVD) least-squares fit around the peak:
        motional branch  Ym = (1/Rm) / (1 + 2jQ(f-f0)/f0)
@@ -20,8 +26,8 @@ Per-trace extras: peak height, baseline (median), asymmetry ratio
 (f2-f0)/(f0-f1) (1.00 = symmetric Lorentzian).
 
 Usage:
-    python extract_q.py data.csv                      # |Y| magnitude data
-    python extract_q.py data.csv --conductance        # G = Re(Y) data
+    python extract_q.py data.csv                      # mode auto-detected
+    python extract_q.py data.csv --conductance        # force all traces
     python extract_q.py data.csv --funit GHz --db
     python extract_q.py data.csv --fcol 0 --ycol 1 --ycol 3
 
@@ -42,19 +48,52 @@ from scipy.optimize import curve_fit
 UNIT_SCALE = {"hz": 1.0, "khz": 1e3, "mhz": 1e6, "ghz": 1e9}
 
 
+def parse_column(vals):
+    """Parse cells that are either plain reals or complex literals with a
+    trailing i (e.g. "4.656e-7+0.0141i"). Returns (values, is_complex);
+    values is a complex array if any cell parsed as complex, else float."""
+    out = []
+    is_complex = False
+    for v in vals:
+        s = str(v).strip()
+        if s[-1:] in "ijIJ":
+            try:
+                out.append(complex(s[:-1] + "j"))
+                is_complex = True
+                continue
+            except ValueError:
+                pass
+        try:
+            out.append(float(s))
+        except ValueError:
+            out.append(float("nan"))
+    if is_complex:
+        values = np.array([x if isinstance(x, complex) else complex(x, 0) for x in out])
+    else:
+        values = np.array(out, dtype=float)
+    return values, is_complex
+
+
 def load_data(path, fcol=None, ycols=None):
-    df = pd.read_csv(path, sep=None, engine="python", comment="#")
-    df = df.apply(pd.to_numeric, errors="coerce").dropna(axis=1, how="all").dropna()
+    df = pd.read_csv(path, sep=None, engine="python", comment="#", dtype=str)
     if df.shape[1] < 2:
         sys.exit("Need at least two numeric columns (freq, trace).")
     if fcol is None:
         fcol = 0
-    f = df.iloc[:, fcol].to_numpy(dtype=float)
+    f, _ = parse_column(df.iloc[:, fcol])
+    f = f.real if np.iscomplexobj(f) else f
+    valid = np.isfinite(f)
     if ycols is None:
         ycols = [i for i in range(df.shape[1]) if i != fcol]
-    traces = {str(df.columns[i]): df.iloc[:, i].to_numpy(dtype=float) for i in ycols}
-    order = np.argsort(f)
-    return f[order], {k: v[order] for k, v in traces.items()}
+    traces = {}
+    for i in ycols:
+        y, is_complex = parse_column(df.iloc[:, i])
+        valid &= np.isfinite(y)
+        traces[str(df.columns[i])] = (y, is_complex)
+    order = np.argsort(f[valid])
+    f = f[valid][order]
+    traces = {k: (y[valid][order], is_complex) for k, (y, is_complex) in traces.items()}
+    return f, traces
 
 
 def crossings(f, y, level):
@@ -131,16 +170,18 @@ def bvd_fit(f, y, conductance, hp):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("csv")
-    ap.add_argument("--conductance", action="store_true",
-                    help="traces are motional conductance Re(Y); level = peak/2")
+    mode = ap.add_mutually_exclusive_group()
+    mode.add_argument("--conductance", action="store_true",
+                       help="force all traces as motional conductance Re(Y); level = peak/2")
+    mode.add_argument("--magnitude", action="store_true",
+                       help="force all traces as admittance magnitude |Y|; level = peak/sqrt(2)")
     ap.add_argument("--fcol", type=int, default=None)
     ap.add_argument("--ycol", type=int, action="append", default=None)
     ap.add_argument("--funit", default="Hz")
-    ap.add_argument("--db", action="store_true", help="y data in dB")
+    ap.add_argument("--db", action="store_true", help="y data in dB (real-valued traces only)")
     ap.add_argument("--out", default="q_extraction.png")
     args = ap.parse_args()
 
-    level_div = 2.0 if args.conductance else np.sqrt(2.0)
     scale = UNIT_SCALE[args.funit.lower()]
     f, traces = load_data(args.csv, args.fcol, args.ycol)
     f = f * scale
@@ -151,14 +192,25 @@ def main():
           f"{'Q (3dB)':>10}{'Q (BVD)':>10}{'Rm (Ohm)':>12}{'baseline':>12}{'asym':>8}")
     print("-" * 137)
 
-    for label, y in traces.items():
-        if args.db:
-            y = 10 ** (y / 20.0)
+    seen_modes = set()
+    for label, (raw, is_complex) in traces.items():
+        if is_complex:
+            conductance = not args.magnitude
+            y = raw.real if conductance else np.abs(raw)
+            tag = " [auto: complex Y -> G]" if conductance else " [auto: complex Y -> |Y|]"
+        else:
+            conductance = args.conductance
+            y = raw
+            if args.db:
+                y = 10 ** (y / 20.0)
+            tag = ""
+        seen_modes.add(conductance)
+        level_div = 2.0 if conductance else np.sqrt(2.0)
         if y.min() >= fmin/scale*0.99 and y.max() <= fmax/scale*1.01:
             print(f"{label:<45}  looks like a frequency column - skipped")
             continue
         hp = q_half_power(f, y, level_div)
-        bvd = bvd_fit(f, y, args.conductance, hp)
+        bvd = bvd_fit(f, y, conductance, hp)
         f0 = hp["f0"] if hp else (bvd["f0"] if bvd else np.nan)
         ypk = y[np.argmax(y)]
         baseline = float(np.median(y))
@@ -168,10 +220,10 @@ def main():
         rm = f"{bvd['Rm']:.4g}" if bvd else "n/a"
         asym = (f"{(hp['f2']-hp['f0'])/(hp['f0']-hp['f1']):.2f}"
                 if hp and hp["f0"] > hp["f1"] else "n/a")
-        print(f"{label:<45}{f0:>16.6g}{ypk:>12.4g}{bw:>12}{q3:>10}{qb:>10}"
+        print(f"{(label+tag):<45}{f0:>16.6g}{ypk:>12.4g}{bw:>12}{q3:>10}{qb:>10}"
               f"{rm:>12}{baseline:>12.4g}{asym:>8}")
         if bvd:
-            extra = (f"phi = {bvd['phi']:+.3f} rad" if args.conductance
+            extra = (f"phi = {bvd['phi']:+.3f} rad" if "phi" in bvd
                      else f"C0 = {bvd['C0']:.3g} F")
             print(f"    BVD:  f0 = {bvd['f0']:.10g} Hz   Q = {bvd['Q']:.0f}"
                   f"   Rm = {bvd['Rm']:.4g} Ohm   Lm = {bvd['Lm']:.4g} H"
@@ -182,7 +234,7 @@ def main():
             ax.plot([hp["f1"]/scale, hp["f2"]/scale], [hp["level"]]*2, "r.-", ms=8, lw=1)
 
     ax.set_xlabel(f"freq ({args.funit})")
-    ax.set_ylabel("G (S)" if args.conductance else "|Y| (S)")
+    ax.set_ylabel("G (S)" if seen_modes == {True} else "|Y| (S)" if seen_modes == {False} else "G or |Y| (S)")
     ax.grid(True, which="both", alpha=0.3)
     ax.legend(fontsize=7)
     fig.tight_layout()

@@ -12,6 +12,13 @@ analyzed either inside OriginLab or standalone.
   - motional conductance G = Re(Y): level = peak / 2   (G is power-like)
   - admittance magnitude |Y|:       level = peak / sqrt(2)
   Wrong level biases Q by ~1.55x. Default MODE = 'conductance'.
+- Mode is auto-detected per trace in standalone/extract_q.py and
+  origin/extract_q_origin.py: a column of complex literals with a
+  trailing "i" (e.g. "4.656e-7+0.0141i") is real Y data, so G = Re(Y)
+  is used directly (unambiguous — a real-only column can't self-report
+  whether it's G or |Y|, so MODE/--conductance/--magnitude only matter
+  as the fallback/override for those). LabTalk doesn't implement this
+  detection (see Environment constraints).
 - Q is unitless; frequency units (GHz vs Hz) don't matter.
 - Asymmetric (Fano) peaks from feedthrough bias the 3dB method; the fix
   is the BVD fit in standalone/extract_q.py (rotated Lorentzian for G,
@@ -48,8 +55,20 @@ analyzed either inside OriginLab or standalone.
   Origin install. Known constraints: no `break`/`continue` in loops,
   no comma-separated declarations (one per line), no C-style int
   declaration inside for(), errors are SILENT. The file keeps staged
-  sections t1..t5 + main for bisecting failures.
+  sections t1..t5 + main for bisecting failures. Does NOT auto-detect
+  complex-vs-real traces (unlike the two Python front ends) — parsing
+  "a+bi" string literals reliably isn't worth the risk in this
+  interpreter; it always uses the plain 3dB level from its MODE setting.
 - standalone/extract_q.py may use numpy/scipy/pandas/matplotlib freely.
+- origin/app/QExtraction/ packages extract_q_origin.py as an Origin App
+  (.opx) via Package Manager. Python isn't an officially listed App
+  content type (X-Function/.ogs/.c/.h/DLL are); launch.ogs works around
+  this with a documented run.python(path, 2) call. Package Manager
+  bundles launch.ogs + the icon, NOT an install-time copy of the .py, so
+  extract_q_origin.py must be manually placed in the User Files Folder
+  (%Y) and re-copied there after edits. Never verified against a real
+  Origin install — if the App silently does nothing, check that copy
+  step first, then the %Y path expansion.
 
 ## Testing
 - tests/test_synthetic.py generates Lorentzians with known Q=52000 and

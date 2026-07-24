@@ -6,6 +6,8 @@ Cases:
   2. conductance G, symmetric        -> 3dB and BVD both recover Q
   3. conductance G, Fano skew        -> BVD recovers Q (3dB is biased)
   4. magnitude |Y| with feedthrough  -> BVD recovers Q (3dB is biased)
+  5. complex Y column, no flags      -> auto-detected as conductance
+  6. complex Y column, --magnitude   -> forced to |Y| instead
 BVD amplitude 4e-3 S -> Rm = 250 Ohm, checked in the conductance cases.
 
 Run:  python tests/test_synthetic.py
@@ -26,6 +28,14 @@ def make_data(path, conductance, phi=0.0, feed=0.0, n=2001):
     z = (1.0 / RM) / (1.0 + 2j * Q * (f - F0) / F0)
     y = (z * np.exp(1j * phi)).real if conductance else np.abs(z + 1j * feed)
     pd.DataFrame({"freq_GHz": f / 1e9, "trace": y}).to_csv(path, index=False)
+
+
+def make_complex_data(path, n=2001):
+    """Full complex Y, written as 'a+bi' string literals like a real FEM export."""
+    f = np.linspace(F0 - 2e5, F0 + 2e5, n)
+    z = (1.0 / RM) / (1.0 + 2j * Q * (f - F0) / F0)
+    cells = [f"{v.real:.17g}{v.imag:+.17g}i" for v in z]
+    pd.DataFrame({"freq_GHz": f / 1e9, "trace": cells}).to_csv(path, index=False)
 
 
 def run(csv, flags):
@@ -75,5 +85,14 @@ if __name__ == "__main__":
     make_data(HERE / "feed.csv", conductance=False, feed=1e-3)
     r = run(HERE / "feed.csv", [])
     ok &= check("feedthrough Q(BVD)", r["QBVD"], Q)
+
+    make_complex_data(HERE / "complex.csv")
+    r = run(HERE / "complex.csv", [])
+    ok &= check("complex auto->G Q(BVD)", r["QBVD"], Q)
+    ok &= check("complex auto->G Rm    ", r["Rm"], RM)
+
+    r = run(HERE / "complex.csv", ["--magnitude"])
+    ok &= check("complex ->|Y| Q(BVD)  ", r["QBVD"], Q)
+    ok &= check("complex ->|Y| Rm      ", r["Rm"], RM)
 
     sys.exit(0 if ok else 1)

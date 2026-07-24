@@ -22,9 +22,18 @@ where the crossing level depends on what the trace physically is:
   (G is already a power-like Lorentzian)
 - **admittance magnitude** |Y|: level = **peak / sqrt(2)**
 
-Using the wrong level biases Q by ~1.55x, so set the mode correctly:
-`MODE = 'conductance' | 'magnitude'` at the top of the Origin script,
-or the `--conductance` flag for the standalone script.
+Using the wrong level biases Q by ~1.55x, so the two Python front ends
+auto-detect it per trace: a column of complex literals with a trailing
+`i` (e.g. `4.656e-7+0.0141i`) is real Y data, so conductance = Re(Y) is
+used directly — unambiguous, since that's exactly what conductance mode
+already needs. A column of plain real numbers can't self-identify as G
+vs |Y|, so it falls back to `MODE = 'conductance' | 'magnitude'` (top of
+the Origin script) / `--conductance`/`--magnitude` (standalone script,
+mutually exclusive; also force the mode for complex traces if given —
+e.g. `--magnitude` on a complex column takes `abs(Y)` instead of
+`Re(Y)`). The pure LabTalk front end doesn't implement this detection
+(parsing `a+bi` reliably isn't worth the risk in that interpreter) —
+it always uses the plain 3dB level from its `MODE` setting.
 
 ### Extracted parameters
 
@@ -93,23 +102,47 @@ the same script, both documented by OriginLab:
 
 - **One-click button**: bind a button (worksheet button, or
   **Format -> Toolbars** custom toolbar button) to a LabTalk command that
-  runs the saved file directly, e.g.
+  runs the saved file directly (the trailing `2` tells `run.python()` its
+  argument is a file path, not inline code — see
+  [Run(object)](https://docs.originlab.com/labtalk/ref/run-obj/)):
 
-      run.python("C:\path\to\origin\extract_q_origin.py");
+      run.python("C:\path\to\origin\extract_q_origin.py", 2);
 
   No paste step; you edit the `.py` file on disk and the button always
-  runs the current version. See OriginLab's
-  [Working with Python](https://docs.originlab.com/labtalk/guide/work-with-python)
-  LabTalk guide for the exact `run.python()` options in your version.
-- **Origin App (.opx)**: package the script with the **Package Manager**
-  (Tools menu) as an App — it then shows up with its own icon in the Apps
-  Gallery, one click to run, installable/shareable as a single `.opx`
-  file. This is the heavier option (needs an icon + config), worth it
-  only if this tool gets used across many machines/users. See
-  [Create and Update Apps for Origin](https://docs.originlab.com/tutorials/create-update-apps/).
+  runs the current version.
+- **Origin App (`origin/app/QExtraction/`)**: a real Apps Gallery icon,
+  see below.
 
-Neither is implemented in this repo; the script itself doesn't change,
-just how you launch it.
+#### Building the Origin App
+
+`origin/app/QExtraction/` in this repo has the two files Origin's App
+packaging system needs — `launch.ogs` (entry point) and `AppIcon.png`
+(32x32 icon) — following the
+[Create and Update Apps](https://docs.originlab.com/tutorials/create-update-apps/)
+convention (Python itself isn't one of the officially listed App content
+types — X-Function/.ogs/.c/.h/DLL are — but `.ogs` calling
+`run.python()` is a documented, working way to run a Python script from
+one). To build and install it:
+
+1. Copy `origin/extract_q_origin.py` into your Origin **User Files
+   Folder** (`%Y` in LabTalk — find it via **Tools -> User Files
+   Folder**). `launch.ogs` runs `%Yextract_q_origin.py`, so re-copy it
+   there whenever the script changes; Package Manager bundles the
+   launcher and icon, not an arbitrary file-copy-on-install step, so the
+   `.py` can't ride inside the `.opx` itself.
+2. In Origin, open **Code Builder**, find `origin/app/QExtraction/` (or
+   copy it into your Apps workspace folder), right-click it, and choose
+   **Generate...** to open **Package Manager**. Point it at `launch.ogs`
+   as the entry script and `AppIcon.png` as the icon, set a name/version,
+   and generate the `.opx`.
+3. Double-click the resulting `.opx` to install; the icon appears in the
+   Apps Gallery. With a data workbook active, click it to run — same
+   output as the manual flow (`<source book> - QResults` book).
+
+This last step (running Package Manager and testing the installed App)
+has to happen inside Origin itself — I can't drive that GUI or verify it
+end-to-end from here, so treat step 2/3 as the part to sanity-check
+first if the icon doesn't behave as expected.
 
 ### Origin older than 2021 (no `originpro`)
 

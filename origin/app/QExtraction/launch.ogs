@@ -1,0 +1,13 @@
+// launch.ogs - entry point for the "Q Extraction" Origin App.
+// Runs extract_q_origin.py against the active worksheet with one click
+// from the Apps Gallery, instead of Connectivity -> Open Untitled.py.
+//
+// Requires extract_q_origin.py to be copied into the User Files Folder
+// (%Y) once -- Package Manager bundles this .ogs + the icon, not an
+// arbitrary install-time file copy, so the .py can't ride inside the
+// .opx itself. Re-copy it there whenever the script is updated.
+// If %Y ever changes meaning across Origin versions, the LabTalk
+// reference for the "%Y" system register is the place to check.
+
+[Main]
+run.python("%Yextract_q_origin.py", 2);
