@@ -35,6 +35,9 @@ analyzed either inside OriginLab or standalone.
 - Real units (GHz, S, ...) live in the worksheet's Units row
   (`wks.get_labels('U')`), not in column names — don't hardcode unit
   strings in QResults, read them from there.
+- extract_q_origin.py writes QResults into a NEW book named
+  "<source book> - QResults" (op.new_book, not new_sheet-into-source),
+  so raw sweep data and derived results stay separate but traceable.
 
 ## Environment constraints
 - origin/extract_q_origin.py runs INSIDE Origin (2025b) via

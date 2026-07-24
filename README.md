@@ -81,9 +81,35 @@ Origin 2021 introduced the embedded Python environment with the
 1. Activate the data workbook (click it so it is the active window).
 2. **Connectivity -> Open Untitled.py**, paste `origin/extract_q_origin.py`.
 3. Set `MODE = 'conductance' | 'magnitude'` at the top, press **Run** (F5).
-4. Results print to the message log and land in a new `QResults` sheet.
+4. Results print to the message log and land in a new book named
+   `<source book> - QResults`, with units on f0/BW/peak/baseline copied
+   from the source columns.
 
 Tested on Origin 2025b; anything 2021+ should behave the same.
+
+Pasting into Open Untitled.py every time is fine for occasional use but
+gets old fast if you run this often. Two less copy-paste-y ways to launch
+the same script, both documented by OriginLab:
+
+- **One-click button**: bind a button (worksheet button, or
+  **Format -> Toolbars** custom toolbar button) to a LabTalk command that
+  runs the saved file directly, e.g.
+
+      run.python("C:\path\to\origin\extract_q_origin.py");
+
+  No paste step; you edit the `.py` file on disk and the button always
+  runs the current version. See OriginLab's
+  [Working with Python](https://docs.originlab.com/labtalk/guide/work-with-python)
+  LabTalk guide for the exact `run.python()` options in your version.
+- **Origin App (.opx)**: package the script with the **Package Manager**
+  (Tools menu) as an App — it then shows up with its own icon in the Apps
+  Gallery, one click to run, installable/shareable as a single `.opx`
+  file. This is the heavier option (needs an icon + config), worth it
+  only if this tool gets used across many machines/users. See
+  [Create and Update Apps for Origin](https://docs.originlab.com/tutorials/create-update-apps/).
+
+Neither is implemented in this repo; the script itself doesn't change,
+just how you launch it.
 
 ### Origin older than 2021 (no `originpro`)
 

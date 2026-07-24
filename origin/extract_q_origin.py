@@ -4,10 +4,11 @@
 # DATA LAYOUT: column A = frequency; every other column = one resonance trace.
 #              Column X/Y designations are ignored (imports often mislabel them).
 #
-# HOW TO RUN:
+# HOW TO RUN (see README.md for a one-click button alternative):
 #   1. Click the data workbook so it is the active window.
 #   2. Connectivity -> Open Untitled.py, paste this script, press Run (F5).
-#   3. Results are printed and written to a new "QResults" sheet.
+#   3. Results print, and land in a new book "<source book> - QResults"
+#      (units on f0/BW/peak/baseline copied from the source columns).
 
 # ======================= CONFIGURATION =======================
 # 'conductance' : traces are motional conductance G = Re(Y)
@@ -50,6 +51,7 @@ longnames = wks.get_labels('L') or [''] * ncols
 comments  = wks.get_labels('C') or [''] * ncols
 units     = wks.get_labels('U') or [''] * ncols
 funit     = units[0] if units and units[0] else '(x units)'
+rm_unit   = 'Ohm' if MODE == 'conductance' else ''
 
 
 def to_floats(vals):
@@ -149,7 +151,12 @@ if names:
             if k not in param_keys:
                 param_keys.append(k)
 
-    res = op.new_sheet('w', 'QResults')
+    src_book = wks.get_book()
+    src_name = src_book.lname or src_book.name
+    res_book = op.new_book('w', lname=f'{src_name} - QResults')
+    res = res_book[0]
+    res.name = 'QResults'
+
     res.cols = 8 + len(param_keys)
     res.from_list(0, names, lname='Trace')
     col = 1
@@ -160,11 +167,11 @@ if names:
     res.from_list(col,     ypks,  lname='peak',     units=yunit); col += 1
     res.from_list(col,     bws,   lname='BW 3dB',   units=funit); col += 1
     res.from_list(col,     qs,    lname='Q');                     col += 1
-    res.from_list(col,     rms,   lname='Rm',       units='Ohm',
+    res.from_list(col,     rms,   lname='Rm',       units=rm_unit,
                   comments='1/(peak-baseline), conductance mode only'); col += 1
     res.from_list(col,     bases, lname='baseline', units=yunit); col += 1
     res.from_list(col,     asyms, lname='asym',
                   comments='(f2-f0)/(f0-f1), 1 = symmetric')
-    print(f"\nDone: {len(names)} trace(s) -> QResults sheet.")
+    print(f"\nDone: {len(names)} trace(s) -> book '{src_name} - QResults'.")
 else:
     print("No traces processed - check the data layout.")
